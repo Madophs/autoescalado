@@ -5,10 +5,8 @@ from .utils import doWorkload
 import time
 
 # Create your views here.
-def index(request):
+def index(request, request_size):
     start_time = time.time()
-
-    request_size = int(request.GET['req_size'])
 
     # Simulating doing something slow
     doWorkload(request_size)
