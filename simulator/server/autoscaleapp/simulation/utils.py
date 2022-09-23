@@ -4,9 +4,10 @@ import threading
 import math
 import time
 
+
 def doSqrt(request_size:int):
     for it in range(request_size):
-        for i in range(10000000):
+        for i in range(10000):
             math.sqrt(458475487548789181323449846102497)
 
 
@@ -35,10 +36,15 @@ def doWorkload(request_size:int):
     curr_process.daemon = False
 
     CPUs = mp.cpu_count()
+    CPUs = 2
     work_to_handle = divideWork(request_size, CPUs)
 
-    with mp.Pool(CPUs) as p:
-        p.map(doSqrt, work_to_handle)
+    try:
+        pool = mp.Pool(CPUs)
+        pool.map(doSqrt, work_to_handle)
+    finally:
+        pool.close()
+        pool.join()
 
     print("doWorkload: finishing execution....")
 
