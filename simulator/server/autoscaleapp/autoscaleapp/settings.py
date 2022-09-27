@@ -11,6 +11,7 @@ https://docs.djangoproject.com/en/4.1/ref/settings/
 """
 
 from pathlib import Path
+import os
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -25,7 +26,7 @@ SECRET_KEY = 'django-insecure-hmt-&dzgftjd+8m593m1w-r1nfri-#^t!pdf)i-rg#5%pfofj2
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = ['0.0.0.0', 'localhost', '127.0.0.1']
+ALLOWED_HOSTS = ['*','0.0.0.0', 'localhost', '127.0.0.1']
 
 
 # Application definition
@@ -121,3 +122,25 @@ STATIC_URL = 'static/'
 # https://docs.djangoproject.com/en/4.1/ref/settings/#default-auto-field
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
+LOG_PATH = os.environ.get('LOG_PATH') if (not os.environ.get('LOG_PATH') is None) else '/tmp'
+LOG_NAME = os.environ.get('HOSTNAME') + '.log' if (not os.environ.get('HOSTNAME') is None) else 'autoscaleapp.log'
+
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'handlers': {
+        'file': {
+            'level': 'INFO',
+            'class': 'logging.FileHandler',
+            'filename': LOG_PATH + '/' + LOG_NAME,
+        },
+    },
+    'loggers': {
+        'autoscaleapp': {
+            'handlers': ['file'],
+            'level': 'INFO',
+            'propagate': True,
+        },
+    },
+}

@@ -1,0 +1,41 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: autoscaleapp-deployment
+  labels:
+    app: autoscaleapp
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: autoscaleapp
+  template:
+    metadata:
+      labels:
+        app: autoscaleapp
+    spec:
+      containers:
+      - name: autoscaleapp
+        image: madophs/autoscaleapp:latest
+        volumeMounts:
+        - mountPath: /tmp/autoscaleapp
+          name: logs-dir
+        resources:
+          limits:
+            cpu: "1"
+          requests:
+            cpu: "500m"
+        env:
+        - name: LOG_PATH
+          value: "/tmp/autoscaleapp"
+        - name: CPU_LIMIT
+          value: "1"
+        - name: CPU_REQUEST
+          value: "500m"
+        ports:
+        - containerPort: 8000
+      volumes:
+      - name: logs-dir
+        hostPath:
+          path: /tmp/autoscaleapp
+          type: DirectoryOrCreate

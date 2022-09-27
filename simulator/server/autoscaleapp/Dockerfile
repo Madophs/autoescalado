@@ -4,6 +4,7 @@ ENV APP_HOME=/home/app/autoscaleapp
 
 RUN mkdir -p $APP_HOME
 RUN mkdir -p $APP_HOME/static
+RUN mkdir -p $APP_HOME/logs
 
 WORKDIR $APP_HOME
 
@@ -15,10 +16,11 @@ RUN apk update \
     && apk add postgresql-dev gcc python3-dev musl-dev \
     && apk del build-deps \
     && apk --no-cache add musl-dev linux-headers g++
+
 RUN pip install --upgrade pip
 
 COPY . $APP_HOME
 RUN pip install -r requirements.txt
-COPY ./entrypoint.sh $APP_HOME
+EXPOSE 8000/tcp
 
-CMD ["/bin/bash", "/home/app/autoscaleapp/entrypoint.sh"]
+CMD ["gunicorn", "--bind", "0.0.0.0:8000", "autoscaleapp.wsgi:application"]
