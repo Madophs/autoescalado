@@ -9,26 +9,48 @@ import os
 import subprocess
 from datetime import datetime
 from datetime import timedelta
+from enum import Enum
 
 REAL_PATH = os.path.realpath(__file__)
 DIR_PATH = os.path.dirname(REAL_PATH)
+peak_dates = []
+
+class Traffic(Enum):
+    SLEEPING    = 0
+    VERY_LOW    = 1
+    LOW         = 2
+    AVERAGE     = 3
+    HIGH        = 4
+    VERY_HIGH   = 5
+    PEAK        = 6
+
 
 def doParseArgs():
     parser = argparse.ArgumentParser(description='Typical producer to send requests', conflict_handler='resolve')
     parser.add_argument('-h', '--host', default='localhost', help='Host to send the requests.', type=str)
     parser.add_argument('-p', '--port', default='8000', help='Host\'s port', type=int)
-    parser.add_argument('-s', '--sleeptime', default='300', help='Usually used during non-peak hours (in milliseconds)', type=int)
+    parser.add_argument('-s', '--sleeptime', default='500', help='Usually used during non-peak hours (in milliseconds)', type=int)
     parser.add_argument('-i', '--interval', default='1m', help='Interval time between requests i.e 30s (s,m,h).', type=str)
     parser.add_argument('-t', '--producers', default='1', help='Number of producers', type=int)
     parser.add_argument('-u', '--use_parallelism', default='0', help='Use parallelism (0 false)', type=int)
     parser.add_argument('-d', '--start_date', default='2022-01-01', help='Year-Month-Day', type=str)
     parser.add_argument('-e', '--end_date', default='2023-01-01', help='Year-Month-Day', type=str)
+    parser.add_argument('-k', '--peak', default='2022-11-25,2022-11-26', help='-k "2022-11-25,2022-11-26|2022-12-25,etc..."', type=str)
 
     args_map = {}
     for argname, argval in parser.parse_args()._get_kwargs():
         args_map.update({argname:str(argval)})
 
     return args_map
+
+
+def setPeakDates(args_map):
+    date_pairs = args_map['peak'].split('|')
+    for pair in date_pairs:
+        splitted_dates = pair.split(',')
+        peak_date_start = datetime.fromisoformat(splitted_dates[0])
+        peak_date_end = datetime.fromisoformat(splitted_dates[1])
+        peak_dates.append((peak_date_start, peak_date_end))
 
 
 # Lowest allowed value for metrics resolution is 10 seconds, bad for our simulation :(
@@ -46,6 +68,7 @@ def getPodsMetrics():
     memory_usage = memory_usage_accum // replicas
     return (cpu_usage, memory_usage, replicas)
 
+
 def buildApiUrl(args_map,request_size, current_date, cpu_usage, memory_usage, replicas):
     api_url = 'http://' + args_map['host'] + ':' + args_map['port'] + '/' + \
         'simulation/' + str(request_size) + '/' + current_date + '/' + args_map['use_parallelism'] + \
@@ -53,26 +76,68 @@ def buildApiUrl(args_map,request_size, current_date, cpu_usage, memory_usage, re
     return api_url
 
 
+def isPeakDate(current_date:datetime) -> bool:
+    for (peak_date_start, peak_date_end) in peak_dates:
+        if peak_date_start <= current_date and \
+                peak_date_end >= current_date:
+            return True
+    return False
+
+
 def requestSizeBasedOnDatetime(current_date:datetime) -> int:
-    if current_date.hour > 3 and current_date.hour < 17: # Peak hours
-        if not should_sleep(5):
-            return int(random.randrange(500, 2000))
-        else:
-            return 0
+    traffic = Traffic.AVERAGE
+    prob_decrease = 0
 
-    if current_date.hour < 9 or current_date.hour > 22: # Off-peak hours
-        if not should_sleep(70):
-            return int(random.randrange(200, 1000))
-        else:
-            return 0
+    if current_date.hour >= 9 and current_date.hour < 15:
+        traffic = Traffic.HIGH
+        prob_decrease = 5
 
-    if should_sleep(10):
-        return 0
+    if current_date.hour >= 15 and current_date.hour < 19:
+        traffic = Traffic.AVERAGE
+        prob_decrease = 5
 
-    return int(random.randrange(100, 500))
+    if (current_date.hour >= 19 and current_date.hour <= 22) \
+            or (current_date.hour >= 5 and current_date.hour < 7):
+        traffic = Traffic.LOW
+        prob_decrease = 10
+
+    if current_date.hour >= 22 or current_date.hour < 1:
+        traffic = Traffic.VERY_LOW
+
+    if current_date.hour >= 1 and current_date.hour < 5:
+        traffic = Traffic.SLEEPING
+
+    if current_date.weekday() == 5 or current_date.weekday() == 6: # Weekend
+        prob_decrease = 90
+
+    if isPeakDate(current_date):
+        traffic = Traffic(traffic.value + 1)
+
+    return (getRandomTraffic(traffic, prob_decrease), traffic)
 
 
-def should_sleep(probability:int) -> bool:
+def getRandomTraffic(traffic:Traffic, prob_low_traffic:int) -> int:
+    if decreaseTraffic(prob_low_traffic):
+        traffic = Traffic(min(traffic.value, max(Traffic.VERY_LOW.value, traffic.value - 1)))
+
+    if traffic is Traffic.PEAK:
+        return int(random.randrange(2700, 3050))
+    if traffic is Traffic.VERY_HIGH:
+        return int(random.randrange(2300, 2700))
+    elif traffic is Traffic.HIGH:
+        return int(random.randrange(2000, 2500))
+    elif traffic is Traffic.AVERAGE:
+        return int(random.randrange(1700, 2100))
+    elif traffic is Traffic.LOW:
+        return int(random.randrange(1000, 1500))
+    elif traffic is Traffic.VERY_LOW:
+        return int(random.randrange(800, 1200))
+    else:
+        return int(random.randrange(100, 300))
+
+
+# Probablity to decrease traffic
+def decreaseTraffic(probability:int) -> bool:
     if probability == 0:
         return False
 
@@ -150,15 +215,13 @@ def spawnProducers(args_map):
     end_date = datetime.fromisoformat(args_map['end_date'])
     interval = parseInterval(args_map['interval'])
     producers = int(args_map['producers'])
+    setPeakDates(args_map)
 
     while current_date < end_date:
         start_time = time.time()
-        total_request_size = requestSizeBasedOnDatetime(current_date)
+        (total_request_size, traffic_level) = requestSizeBasedOnDatetime(current_date)
         requests_per_producer = requestsPerProducer(producers, total_request_size)
         request_urls = requestsURLPerProducer(requests_per_producer, args_map, current_date.isoformat())
-        print('Total request size:',  total_request_size)
-        print(requests_per_producer)
-        print(request_urls)
 
         try:
             pool = mp.Pool(producers)
@@ -167,40 +230,12 @@ def spawnProducers(args_map):
             pool.close()
             pool.join()
 
+        # Take a nap to decrease CPU usage during simulation
+        if traffic_level is Traffic.VERY_LOW or traffic_level is Traffic.SLEEPING:
+            time.sleep(sleeptime)
+
         current_date += timedelta(seconds=interval)
         total_time = time.time() - start_time
-        print('Time per request chunk sent:', total_time)
-
-
-def sendRequests(args_map):
-    sleeptime = int(args_map['sleeptime']) / 1000
-    current_date = datetime.fromisoformat(args_map['start_date'])
-    end_date = datetime.fromisoformat(args_map['end_date'])
-    interval = int(args_map['interval'])
-    retry, MAX_RETRIES = 0, 20
-
-    while current_date < end_date:
-        if retry >= MAX_RETRIES:
-            print('ERROR: max number of retries reached. Exiting...')
-            break
-
-        request_size = requestSizeBasedOnDatetime(current_date)
-        if request_size != 0:
-            api_url = buildApiUrl(args_map, request_size, current_date.isoformat())
-            # print('Sending request:', api_url)
-            try:
-                req = requests.get(api_url, timeout=5)
-                retry = 0
-                print(req.json())
-            except:
-                print('ERROR: connection with server was lost, retrying...')
-                time.sleep(0.2)
-                retry += 1
-                continue
-        else:
-            print('Process sleeping for', sleeptime, 'seconds')
-            time.sleep(sleeptime)
-        current_date += timedelta(seconds=interval)
 
 
 if __name__ == '__main__':
