@@ -32,6 +32,8 @@ spec:
           value: "1"
         - name: CPU_REQUEST
           value: "500m"
+        - name: LOOP_CYCLES
+          value: "2000"
         ports:
         - containerPort: 8000
       volumes:

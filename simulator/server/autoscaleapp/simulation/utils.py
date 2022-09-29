@@ -8,9 +8,16 @@ import os
 
 logger = logging.getLogger('autoscaleapp')
 
+def getLoopCycles() -> int:
+    cycles = os.environ.get('LOOP_CYCLES')
+    if cycles is None:
+        cycles = 5000
+    return int(cycles)
+
+
 def doSqrt(request_size:int):
     for _ in range(request_size):
-        for _ in range(10000):
+        for _ in range(getLoopCycles()):
             math.sqrt(458475487548789181323449846102497)
 
 
@@ -60,6 +67,7 @@ def getCPUCount() -> int:
     else:
         return mp.cpu_count()
 
+
 def calculateThreads() -> int:
     CPUs = getCPUCount()
     if CPUs == 1:
@@ -90,5 +98,4 @@ def doWorkload(request_size:int, use_parallelism:int):
         doSqrt(request_size)
     else:
         parallelWorkload(request_size)
-
 
